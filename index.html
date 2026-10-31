@@ -1,1 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowLab CFD — Analytical Flow (Particle Tracers)</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Three.js & Controls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <style>
+        /* --- GLOBAL RESET & VARIABLES --- */
+        :root {
+            --bg-base: #1e1e1e;
+            --bg-panel: #252526;
+            --bg-header: #333333;
+            --bg-active: #094771;
+            --bg-hover: #2a2d2e;
+            --border: #3e3e42;
+            --text-main: #cccccc;
+            --text-light: #ffffff;
+            --text-muted: #858585;
+            --accent: #007acc;
+            --success: #89d185;
+            --warning: #cca700;
+            --error: #f48771;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: var(--bg-base); }
+        ::-webkit-scrollbar-thumb { background: #424242; border: 2px solid var(--bg-base); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+
+        /* --- TOP NAVBAR --- */
+        .navbar {
+            height: 30px;
+            background-color: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            font-size: 12px;
+            user-select: none;
+        }
+        .nav-item { padding: 4px 8px; cursor: pointer; border-radius: 3px; }
+        .nav-item:hover { background-color: var(--bg-hover); }
+
+        /* --- MAIN LAYOUT (CSS GRID) --- */
+        .workspace {
+            display: grid;
+            grid-template-columns: 240px 1fr 300px;
+            grid-template-rows: 1fr 280px;
+            flex: 1;
+            height: calc(100vh - 30px);
+        }
+
+        /* --- PANELS --- */
+        .panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-header {
+            background-color: var(--bg-header);
+            padding: 6px 12px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-light);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+        }
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        /* --- LEFT PANEL: TREE VIEW --- */
+        .tree-view { grid-column: 1 / 2; grid-row: 1 / 2; }
+        .tree-node {
+            padding: 4px 8px 4px 20px;
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+        }
+        .tree-node::before {
+            content: '▸';
+            position: absolute;
+            left: 5px;
+            color: var(--text-muted);
+        }
+        .tree-node.expanded::before { content: '▾'; }
+        .tree-node:hover { background-color: var(--bg-hover); }
+        .tree-node.active { background-color: var(--bg-active); color: var(--text-light); }
+        .tree-children { display: none; }
+        .tree-node.expanded + .tree-children { display: block; }
+        .tree-child {
+            padding: 4px 8px 4px 35px;
+            cursor: pointer;
+        }
+        .tree-child:hover { background-color: var(--bg-hover); }
+        .tree-child.active { background-color: var(--bg-active); color: var(--text-light); }
+
+        /* --- RIGHT PANEL: TASK PAGE --- */
+        .task-page { grid-column: 3 / 4; grid-row: 1 / 2; }
+        .task-section { display: none; display: flex; flex-direction: column; gap: 15px; }
+        .task-section.active { display: flex; }
+        
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group label { color: var(--text-light); font-weight: 500; font-size: 12px; display: flex; justify-content: space-between;}
+        .form-group label span { font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+        
+        select, input[type="number"], input[type="text"] {
+            background-color: var(--bg-base);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 6px;
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            outline: none;
+            width: 100%;
+        }
+        select:focus, input:focus { border-color: var(--accent); }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+            margin-top: 5px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .btn-calc {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        .btn-calc:hover { background-color: #005f9e; }
+        .btn-calc:active { background-color: #004a7a; }
+
+        /* --- CENTER PANEL: 3D VIEWPORT --- */
+        .viewport-panel { grid-column: 2 / 3; grid-row: 1 / 2; position: relative; background: #000; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        .vp-toolbar {
+            position: absolute;
+            top: 10px; left: 10px;
+            display: flex; gap: 5px;
+            z-index: 10;
+        }
+        .vp-btn {
+            background: rgba(37, 37, 38, 0.8);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            border-radius: 3px;
+            backdrop-filter: blur(4px);
+        }
+        .vp-btn:hover { background: var(--bg-hover); }
+        .vp-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        .vp-legend {
+            position: absolute;
+            bottom: 10px; left: 10px;
+            background: rgba(30, 30, 30, 0.8);
+            border: 1px solid var(--border);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+        .legend-title { font-weight: bold; margin-bottom: 5px; color: white; }
+        .legend-bar {
+            width: 15px; height: 150px;
+            background: linear-gradient(to top, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
+            border: 1px solid #000;
+            float: left; margin-right: 10px;
+        }
+        .legend-ticks { display: flex; flex-direction: column; justify-content: space-between; height: 150px; }
+        .legend-unit { margin-top: 5px; text-align: center; color: var(--text-muted); }
+
+        /* --- BOTTOM PANEL: CONSOLE & CHARTS --- */
+        .bottom-panel { grid-column: 1 / 4; grid-row: 2 / 3; }
+        
+        .tabs {
+            display: flex;
+            background-color: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+        }
+        .tab {
+            padding: 6px 15px;
+            cursor: pointer;
+            font-size: 12px;
+            border-right: 1px solid var(--border);
+            border-bottom: 2px solid transparent;
+            color: var(--text-muted);
+        }
+        .tab:hover { background-color: var(--bg-hover); color: var(--text-main); }
+        .tab.active { background-color: var(--bg-panel); color: var(--text-light); border-bottom-color: var(--accent); }
+
+        .tab-content { display: none; height: calc(100% - 29px); padding: 10px; overflow: hidden; position: relative; }
+        .tab-content.active { display: block; }
+
+        #console-output {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            height: 100%;
+            overflow-y: auto;
+            color: var(--text-main);
+            padding: 5px;
+            white-space: pre-wrap;
+        }
+        .log-info { color: #cccccc; }
+        .log-success { color: var(--success); }
+        .log-warn { color: var(--warning); }
+        .log-error { color: var(--error); }
+
+        .chart-wrapper { width: 100%; height: 100%; position: relative; }
+
+        .results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+        .result-box { background: var(--bg-base); border: 1px solid var(--border); padding: 8px; border-radius: 3px; }
+        .result-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+        .result-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: bold; color: var(--success); margin-top: 2px;}
+    </style>
+</head>
+<body>
+
+    <!-- TOP NAVBAR -->
+    <div class="navbar">
+        <div class="nav-item">File</div>
+        <div class="nav-item">Edit</div>
+        <div class="nav-item">View</div>
+        <div class="nav-item">Domain</div>
+        <div class="nav-item">Physics</div>
+        <div class="nav-item">Solve</div>
+        <div class="nav-item">Postprocessing</div>
+        <div style="flex:1"></div>
+        <div style="color: var(--success); font-weight: bold;">Status: Analytical Flow Field Active</div>
+    </div>
+
+    <div class="workspace">
+        
+        <!-- LEFT PANEL: PROJECT OUTLINE -->
+        <div class="panel tree-view">
+            <div class="panel-header">Project Outline</div>
+            <div class="panel-content" style="padding: 0;">
+                <div class="tree-node expanded">Setup</div>
+                <div class="tree-children">
+                    <div class="tree-child" data-target="task-geometry">Geometry</div>
+                    <div class="tree-child" data-target="task-mesh">Mesh Info</div>
+                    <div class="tree-child active" data-target="task-materials">Materials (Fluid)</div>
+                    <div class="tree-child" data-target="task-boundary">Boundary Conditions</div>
+                </div>
+                <div class="tree-node expanded" style="margin-top: 10px;">Solution</div>
+                <div class="tree-children">
+                    <div class="tree-child" data-target="task-run">Run Calculation</div>
+                </div>
+                <div class="tree-node expanded" style="margin-top: 10px;">Results</div>
+                <div class="tree-children">
+                    <div class="tree-child" data-target="task-reports">Surface Integrals / Reports</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER PANEL: 3D VIEWPORT -->
+        <div class="panel viewport-panel" id="viewport-container">
+            <div class="vp-toolbar">
+                <button class="vp-btn active" id="btn-mesh" onclick="toggleMesh()">Show Mesh</button>
+                <button class="vp-btn active" id="btn-streamlines" onclick="toggleStreamlines()">Flow Tracers</button>
+                <button class="vp-btn" onclick="resetCamera()">Reset View</button>
+            </div>
+            
+            <div class="vp-legend">
+                <div class="legend-title">Absolute Velocity</div>
+                <div>
+                    <div class="legend-bar"></div>
+                    <div class="legend-ticks" id="legend-ticks"></div>
+                </div>
+                <div class="legend-unit">[m s^-1]</div>
+            </div>
+
+            <canvas id="canvas3d"></canvas>
+        </div>
+
+        <!-- RIGHT PANEL: TASK PAGE -->
+        <div class="panel task-page">
+            <div class="panel-header" id="task-title">Materials</div>
+            <div class="panel-content">
+                
+                <!-- Section: Geometry -->
+                <div class="task-section" id="task-geometry">
+                    <div class="form-group">
+                        <label>Pipe Diameter (D) <span id="lbl_D">0.20 m</span></label>
+                        <input type="range" id="val_D" min="0.05" max="1.0" step="0.05" value="0.20" oninput="updateGeomUI()">
+                    </div>
+                    <div class="form-group">
+                        <label>Pipe Length (L) <span id="lbl_L">5.00 m</span></label>
+                        <input type="range" id="val_L" min="2.0" max="20.0" step="0.5" value="5.0" oninput="updateGeomUI()">
+                    </div>
+                    <div class="form-group">
+                        <label>Surface Roughness (ε) <span id="lbl_eps">0.00 mm</span></label>
+                        <input type="range" id="val_eps" min="0" max="5.0" step="0.01" value="0.0" oninput="updateGeomUI()">
+                    </div>
+                    <button class="btn-calc" onclick="triggerRecalculate()">Update Geometry</button>
+                </div>
+
+                <!-- Section: Mesh Info -->
+                <div class="task-section" id="task-mesh">
+                    <div class="form-group">
+                        <label>Mesh Density (visual only)</label>
+                        <select id="val_mesh" onchange="triggerRecalculate()">
+                            <option value="coarse">Coarse</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="fine">Fine</option>
+                        </select>
+                    </div>
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 10px;">
+                        
+                    </div>
+                </div>
+
+                <!-- Section: Materials -->
+                <div class="task-section active" id="task-materials">
+                    <div class="form-group">
+                        <label>Fluid Database</label>
+                        <select id="val_fluid" onchange="onFluidChange()">
+                            <option value="water">Water-liquid</option>
+                            <option value="air">Air</option>
+                            <option value="oil">Engine Oil</option>
+                            <option value="glycerin">Glycerin</option>
+                        </select>
+                    </div>
+                    <hr style="border-color: var(--border); margin: 10px 0;">
+                    <div class="form-group">
+                        <label>Density (ρ) [kg/m³]</label>
+                        <input type="number" id="prop_rho" step="0.01" value="998.2" onchange="triggerRecalculate()">
+                    </div>
+                    <div class="form-group">
+                        <label>Dynamic Viscosity (μ) [kg/m-s]</label>
+                        <input type="number" id="prop_mu" step="1e-5" value="0.001003" onchange="triggerRecalculate()">
+                    </div>
+                </div>
+
+                <!-- Section: Boundary Conditions -->
+                <div class="task-section" id="task-boundary">
+                    <div class="form-group">
+                        <label>Inlet Type</label>
+                        <select disabled><option>Velocity-Inlet</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Velocity Magnitude (v) <span id="lbl_v">2.50 m/s</span></label>
+                        <input type="range" id="val_v" min="0.1" max="20.0" step="0.1" value="2.5" oninput="updateVelUI()">
+                    </div>
+                    <div class="form-group">
+                        <label>Outlet Type</label>
+                        <select disabled><option>Pressure-Outlet (0 Pa gauge)</option></select>
+                    </div>
+                    <button class="btn-calc" onclick="triggerRecalculate()">Apply & Initialize</button>
+                </div>
+
+                <!-- Section: Run Calculation -->
+                <div class="task-section" id="task-run">
+                    <button class="btn-calc" onclick="runCalculation()" style="margin-top: 0;">Calculate</button>
+                    <div class="results-grid" style="margin-top: 15px;">
+                        <div class="result-box">
+                            <div class="result-label">Reynolds (Re)</div>
+                            <div class="result-val" id="res_re">0</div>
+                        </div>
+                        <div class="result-box">
+                            <div class="result-label">Regime</div>
+                            <div class="result-val" id="res_regime">LAMINAR</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section: Reports -->
+                <div class="task-section" id="task-reports">
+                    <div class="results-grid">
+                        <div class="result-box" style="grid-column: 1 / -1;">
+                            <div class="result-label">Max Velocity (Centerline)</div>
+                            <div class="result-val" id="res_vmax" style="color: #38bdf8;">0.00 m/s</div>
+                        </div>
+                        <div class="result-box" style="grid-column: 1 / -1;">
+                            <div class="result-label">Required Inlet Pressure (ΔP)</div>
+                            <div class="result-val" id="res_dp" style="color: #f48771;">0.00 Pa</div>
+                        </div>
+                        <div class="result-box">
+                            <div class="result-label">Friction Factor (f)</div>
+                            <div class="result-val" id="res_f">0.0000</div>
+                        </div>
+                        <div class="result-box">
+                            <div class="result-label">Wall Shear Stress</div>
+                            <div class="result-val" id="res_tau">0.00 Pa</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- BOTTOM PANEL: TABS & CHARTS -->
+        <div class="panel bottom-panel">
+            <div class="tabs">
+                <div class="tab" data-tab="tab-console">Console</div>
+                <div class="tab active" data-tab="tab-velchart">Velocity Profile</div>
+                <div class="tab" data-tab="tab-pchart">Pressure Distribution</div>
+                <div class="tab" data-tab="tab-convergence">Convergence (f)</div>
+            </div>
+            
+            <div class="tab-content" id="tab-console">
+                <div id="console-output"></div>
+            </div>
+            
+            <div class="tab-content active" id="tab-velchart">
+                <div class="chart-wrapper"><canvas id="chart-velocity"></canvas></div>
+            </div>
+
+            <div class="tab-content" id="tab-pchart">
+                <div class="chart-wrapper"><canvas id="chart-pressure"></canvas></div>
+            </div>
+
+            <div class="tab-content" id="tab-convergence">
+                <div class="chart-wrapper"><canvas id="chart-convergence"></canvas></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. DATA & GLOBALS
+        // ==========================================
+        const FLUIDS = {
+            water: { name: "Water-liquid", rho: 998.2, mu: 0.001003 },
+            air: { name: "Air", rho: 1.225, mu: 1.7894e-5 },
+            oil: { name: "Engine-Oil", rho: 889, mu: 1.06 },
+            glycerin: { name: "Glycerin", rho: 1260, mu: 1.49 }
+        };
+
+        let physics = {
+            D: 0.20, L: 5.0, v_inlet: 2.5, fluid: 'water',
+            rho: 998.2, mu: 0.001003, epsilon: 0.0,
+            Re: 0, f: 0, v_max: 0, dp: 0, tau_w: 0,
+            isTurbulent: false, isTransition: false,
+            convergenceHistory: []
+        };
+
+        let scene, camera, renderer, controls;
+        let pipeMesh, wireframeMesh, particleSystem;
+        const clock = new THREE.Clock();
+
+        let chartVelocity, chartPressure, chartConvergence;
+        let showMesh = true;
+        let showStreamlines = true;
+
+        // Tracer Particles Setup
+        const NUM_PARTICLES = 40000; // Sangat padat untuk efek kontinu
+        let positions, colors, particleData;
+
+        // ==========================================
+        // 2. UI & DOM
+        // ==========================================
+        function logMsg(msg, type='info') {
+            const cons = document.getElementById('console-output');
+            const prefix = `[${new Date().toLocaleTimeString()}] `;
+            const el = document.createElement('div');
+            el.className = `log-${type}`;
+            el.innerText = prefix + msg;
+            cons.appendChild(el);
+            cons.scrollTop = cons.scrollHeight;
+        }
+
+        document.querySelectorAll('.tree-child').forEach(node => {
+            node.addEventListener('click', () => {
+                document.querySelectorAll('.tree-child').forEach(n => n.classList.remove('active'));
+                node.classList.add('active');
+                const targetId = node.getAttribute('data-target');
+                document.querySelectorAll('.task-section').forEach(sec => sec.classList.remove('active'));
+                document.getElementById(targetId).classList.add('active');
+                document.getElementById('task-title').innerText = node.innerText;
+            });
+        });
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.getAttribute('data-tab')).classList.add('active');
+                if (chartVelocity) chartVelocity.resize();
+                if (chartPressure) chartPressure.resize();
+                if (chartConvergence) chartConvergence.resize();
+            });
+        });
+
+        function updateGeomUI() {
+            document.getElementById('lbl_D').innerText = parseFloat(document.getElementById('val_D').value).toFixed(2) + ' m';
+            document.getElementById('lbl_L').innerText = parseFloat(document.getElementById('val_L').value).toFixed(2) + ' m';
+            document.getElementById('lbl_eps').innerText = parseFloat(document.getElementById('val_eps').value).toFixed(2) + ' mm';
+            triggerRecalculate();
+        }
+
+        function updateVelUI() {
+            document.getElementById('lbl_v').innerText = parseFloat(document.getElementById('val_v').value).toFixed(2) + ' m/s';
+            triggerRecalculate();
+        }
+
+        function onFluidChange() {
+            const fluidKey = document.getElementById('val_fluid').value;
+            const fluid = FLUIDS[fluidKey];
+            document.getElementById('prop_rho').value = fluid.rho;
+            document.getElementById('prop_mu').value = fluid.mu;
+            triggerRecalculate();
+        }
+
+        function toggleMesh() {
+            showMesh = !showMesh;
+            document.getElementById('btn-mesh').classList.toggle('active');
+            if (wireframeMesh) wireframeMesh.visible = showMesh;
+        }
+
+        function toggleStreamlines() {
+            showStreamlines = !showStreamlines;
+            document.getElementById('btn-streamlines').classList.toggle('active');
+            if (particleSystem) particleSystem.visible = showStreamlines;
+        }
+
+        // ==========================================
+        // 3. PHYSICS ENGINE
+        // ==========================================
+        function calculatePhysics() {
+            physics.D = parseFloat(document.getElementById('val_D').value);
+            physics.L = parseFloat(document.getElementById('val_L').value);
+            physics.v_inlet = parseFloat(document.getElementById('val_v').value);
+            physics.epsilon = parseFloat(document.getElementById('val_eps').value) / 1000.0;
+            
+            physics.rho = parseFloat(document.getElementById('prop_rho').value);
+            physics.mu = parseFloat(document.getElementById('prop_mu').value);
+
+            physics.Re = (physics.rho * physics.v_inlet * physics.D) / physics.mu;
+
+            solveFriction();
+
+            if (physics.Re < 2300) {
+                physics.isTurbulent = false;
+                physics.isTransition = false;
+                physics.v_max = 2.0 * physics.v_inlet; // Laminar: Vmax = 2 * Vavg
+            } else if (physics.Re < 4000) {
+                physics.isTurbulent = false;
+                physics.isTransition = true;
+                physics.v_max = (60/49) * physics.v_inlet; // Transisi (Pendekatan 1/7 Power Law)
+            } else {
+                physics.isTurbulent = true;
+                physics.isTransition = false;
+                physics.v_max = (60/49) * physics.v_inlet; // Turbulen: Vmax = (60/49) * Vavg
+            }
+
+            physics.dp = physics.f * (physics.L / physics.D) * 0.5 * physics.rho * Math.pow(physics.v_inlet, 2);
+            physics.tau_w = (physics.f / 8.0) * physics.rho * Math.pow(physics.v_inlet, 2);
+
+            // Update UI
+            document.getElementById('res_re').innerText = physics.Re.toLocaleString('en-US', {maximumFractionDigits:0});
+            const regimeEl = document.getElementById('res_regime');
+            if (physics.Re < 2300) {
+                regimeEl.innerText = "LAMINAR";
+                regimeEl.style.color = "var(--success)";
+            } else if (physics.Re < 4000) {
+                regimeEl.innerText = "TRANSITION (approx.)";
+                regimeEl.style.color = "var(--warning)";
+            } else {
+                regimeEl.innerText = "TURBULENT";
+                regimeEl.style.color = "var(--error)";
+            }
+            document.getElementById('res_vmax').innerText = physics.v_max.toFixed(3) + " m/s";
+            document.getElementById('res_dp').innerText = (physics.dp > 10000 ? (physics.dp/1000).toFixed(2) + " kPa" : physics.dp.toFixed(2) + " Pa");
+            document.getElementById('res_f').innerText = physics.f.toFixed(5);
+            document.getElementById('res_tau').innerText = physics.tau_w.toFixed(3) + " Pa";
+
+            updateLegend();
+        }
+
+        function solveFriction() {
+            physics.convergenceHistory = [];
+            if (physics.Re < 2300) {
+                physics.f = 64 / physics.Re;
+                physics.convergenceHistory.push({ iter: 1, f: physics.f, res: 0 });
+            } else {
+                let f = 0.02;
+                for (let i = 1; i <= 20; i++) {
+                    // Persamaan Colebrook-White
+                    let f_new = 1.0 / Math.pow(-2.0 * Math.log10( (physics.epsilon / physics.D) / 3.7 + 2.51 / (physics.Re * Math.sqrt(f)) ), 2);
+                    let res = Math.abs(f_new - f);
+                    physics.convergenceHistory.push({ iter: i, f: f_new, res: res });
+                    f = f_new;
+                    if (res < 1e-6) break;
+                }
+                physics.f = f;
+            }
+        }
+
+        function updateLegend() {
+            const ticksContainer = document.getElementById('legend-ticks');
+            ticksContainer.innerHTML = '';
+            const steps = 5;
+            for (let i = steps; i >= 0; i--) {
+                const val = (physics.v_max * i / steps).toFixed(2);
+                const div = document.createElement('div');
+                div.innerText = val;
+                ticksContainer.appendChild(div);
+            }
+        }
+
+        // ==========================================
+        // 4. THREE.JS — TRACER PARTICLE SYSTEM
+        // ==========================================
+        function init3D() {
+            const container = document.getElementById('viewport-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0a);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(0, 1, 8);
+
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas3d'), antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            const resizeObserver = new ResizeObserver(() => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+            resizeObserver.observe(container);
+
+            build3DGeometry();
+            animate3D();
+        }
+
+        function resetCamera() {
+            camera.position.set(0, physics.D * 3, physics.L * 1.2);
+            controls.target.set(0, 0, 0);
+        }
+
+        // Fungsi Warna Jet (Biru -> Cyan -> Hijau -> Kuning -> Merah)
+        function getJetColor(value, min, max) {
+            let v = (value - min) / (max - min);
+            v = Math.max(0.0, Math.min(1.0, v));
+            let r = Math.max(0.0, Math.min(1.0, 1.5 - Math.abs(v * 4.0 - 3.0)));
+            let g = Math.max(0.0, Math.min(1.0, 1.5 - Math.abs(v * 4.0 - 2.0)));
+            let b = Math.max(0.0, Math.min(1.0, 1.5 - Math.abs(v * 4.0 - 1.0)));
+            return new THREE.Color(r, g, b);
+        }
+
+        // Mendapatkan kecepatan lokal berdasarkan posisi r/R
+        function getVelocity(rRatio) {
+            if (rRatio >= 1.0) return 0.0;
+            if (!physics.isTurbulent && !physics.isTransition) {
+                return physics.v_max * (1.0 - rRatio * rRatio);
+            } else {
+                return physics.v_max * Math.pow(1.0 - rRatio, 1.0 / 7.0);
+            }
+        }
+
+        function build3DGeometry() {
+            if (pipeMesh) scene.remove(pipeMesh);
+            if (wireframeMesh) scene.remove(wireframeMesh);
+            if (particleSystem) scene.remove(particleSystem);
+
+            const R = physics.D / 2;
+            const L = physics.L;
+
+            // 1. Pipa Kaca Transparan
+            const geom = new THREE.CylinderGeometry(R, R, L, 64, 1, true);
+            geom.rotateZ(Math.PI / 2); // Pipa sejajar sumbu X
+            const mat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff, transparent: true, opacity: 0.05,
+                roughness: 0.1, metalness: 0.0, side: THREE.DoubleSide, depthWrite: false
+            });
+            pipeMesh = new THREE.Mesh(geom, mat);
+            scene.add(pipeMesh);
+
+            // 2. Wireframe Mesh (Opsional)
+            const wireMat = new THREE.MeshBasicMaterial({ color: 0x444444, wireframe: true, transparent: true, opacity: 0.15 });
+            wireframeMesh = new THREE.Mesh(geom, wireMat);
+            wireframeMesh.visible = showMesh;
+            scene.add(wireframeMesh);
+
+            // 3. Flow Tracer Particles Padat
+            const pGeo = new THREE.BufferGeometry();
+            positions = new Float32Array(NUM_PARTICLES * 3);
+            colors = new Float32Array(NUM_PARTICLES * 3);
+            particleData = [];
+
+            for (let i = 0; i < NUM_PARTICLES; i++) {
+                // Distribusi area seragam dalam penampang pipa
+                const r = R * Math.sqrt(Math.random()) * 0.99; 
+                const theta = Math.random() * 2 * Math.PI;
+                const x = (Math.random() - 0.5) * L; // Posisi acak sepanjang pipa
+                
+                positions[i*3] = x;
+                positions[i*3+1] = r * Math.cos(theta);
+                positions[i*3+2] = r * Math.sin(theta);
+                
+                const rRatio = r / R;
+                const vel = getVelocity(rRatio);
+                
+                const col = getJetColor(vel, 0, physics.v_max);
+                colors[i*3] = col.r;
+                colors[i*3+1] = col.g;
+                colors[i*3+2] = col.b;
+
+                // Simpan data statis untuk animasi
+                particleData.push({
+                    y: r * Math.cos(theta),
+                    z: r * Math.sin(theta),
+                    rRatio: rRatio
+                });
+            }
+
+            pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            pGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // Tekstur titik bercahaya (Soft Glowing Dot)
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.8)');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 32, 32);
+            const texture = new THREE.CanvasTexture(canvas);
+
+            const pMat = new THREE.PointsMaterial({
+                size: R * 0.06, // Ukuran partikel menyesuaikan diameter
+                map: texture,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending // Efek menyatu seperti cairan
+            });
+
+            particleSystem = new THREE.Points(pGeo, pMat);
+            particleSystem.visible = showStreamlines;
+            scene.add(particleSystem);
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            const dt = Math.min(clock.getDelta(), 0.05);
+
+            if (particleSystem && showStreamlines) {
+                const posArr = particleSystem.geometry.attributes.position.array;
+                const colArr = particleSystem.geometry.attributes.color.array;
+                const L = physics.L;
+                
+                for (let i = 0; i < NUM_PARTICLES; i++) {
+                    const pData = particleData[i];
+                    const speed = getVelocity(pData.rRatio);
+
+                    // Bergerak murni di sumbu X (searah aliran pipa)
+                    posArr[i*3] += speed * dt * 1.5; // 1.5 adalah multiplier kecepatan visual
+                    
+                    // Reset ke inlet jika mencapai outlet
+                    if (posArr[i*3] > L/2) {
+                        posArr[i*3] = -L/2;
+                    }
+
+                    // Update warna secara dinamis (jika parameter berubah saat berjalan)
+                    const col = getJetColor(speed, 0, physics.v_max);
+                    colArr[i*3] = col.r;
+                    colArr[i*3+1] = col.g;
+                    colArr[i*3+2] = col.b;
+                }
+                
+                particleSystem.geometry.attributes.position.needsUpdate = true;
+                particleSystem.geometry.attributes.color.needsUpdate = true;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // ==========================================
+        // 5. CHARTS
+        // ==========================================
+        function initCharts() {
+            Chart.defaults.color = '#858585';
+            Chart.defaults.font.family = "'JetBrains Mono', monospace";
+            Chart.defaults.font.size = 11;
+
+            const ctxVel = document.getElementById('chart-velocity').getContext('2d');
+            chartVelocity = new Chart(ctxVel, {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Velocity [m/s]', data: [], borderColor: '#007acc', backgroundColor: 'rgba(0, 122, 204, 0.2)', borderWidth: 2, fill: true, pointRadius: 0, tension: 0.4 }
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Radial Position (r/R)' } },
+                        y: { title: { display: true, text: 'Velocity (m/s)' }, beginAtZero: true }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            const ctxP = document.getElementById('chart-pressure').getContext('2d');
+            chartPressure = new Chart(ctxP, {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Static Pressure [Pa]', data: [], borderColor: '#f48771', backgroundColor: 'rgba(244, 135, 113, 0.2)', borderWidth: 2, fill: true, pointRadius: 0 }
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Axial Position X (m)' } },
+                        y: { title: { display: true, text: 'Gauge Pressure (Pa)' } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            const ctxConv = document.getElementById('chart-convergence').getContext('2d');
+            chartConvergence = new Chart(ctxConv, {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Friction Factor (f)', data: [], borderColor: '#89d185', borderWidth: 2, pointRadius: 3 },
+                    { label: 'Residual', data: [], borderColor: '#f48771', borderWidth: 2, pointRadius: 0, yAxisID: 'y1' }
+                ]},
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Iteration' } },
+                        y: { title: { display: true, text: 'Friction Factor (f)' } },
+                        y1: { type: 'logarithmic', title: { display: true, text: 'Residual' }, position: 'right' }
+                    }
+                }
+            });
+        }
+
+        function updateChartsData() {
+            // Velocity Profile
+            const labelsVel = [];
+            const dataVel = [];
+            for (let i = -20; i <= 20; i++) {
+                let rRatio = i / 20.0;
+                labelsVel.push(rRatio.toFixed(2));
+                let vel = getVelocity(Math.abs(rRatio));
+                dataVel.push(vel);
+            }
+            chartVelocity.data.labels = labelsVel;
+            chartVelocity.data.datasets[0].data = dataVel;
+            chartVelocity.update();
+
+            // Pressure Distribution
+            const labelsP = [];
+            const dataP = [];
+            for (let i = 0; i <= 20; i++) {
+                let x = (i / 20.0) * physics.L;
+                labelsP.push(x.toFixed(2));
+                let p = physics.dp * (1.0 - (x / physics.L));
+                dataP.push(p);
+            }
+            chartPressure.data.labels = labelsP;
+            chartPressure.data.datasets[0].data = dataP;
+            chartPressure.update();
+
+            // Convergence
+            chartConvergence.data.labels = physics.convergenceHistory.map(h => h.iter);
+            chartConvergence.data.datasets[0].data = physics.convergenceHistory.map(h => h.f);
+            chartConvergence.data.datasets[1].data = physics.convergenceHistory.map(h => Math.max(h.res, 1e-8));
+            chartConvergence.update();
+        }
+
+        function runCalculation() {
+            calculatePhysics();
+            build3DGeometry();
+            updateChartsData();
+            logMsg("Calculation complete. Visualization updated.", 'success');
+            logMsg(`Regime: ${physics.isTurbulent ? 'Turbulent (1/7 Power Law)' : (physics.isTransition ? 'Transitional (Approx)' : 'Laminar (Hagen-Poiseuille)')}.`, 'info');
+        }
+
+        function triggerRecalculate() {
+            calculatePhysics();
+            build3DGeometry();
+            updateChartsData();
+        }
+
+        // ==========================================
+        // 6. INITIALIZATION
+        // ==========================================
+        window.onload = () => {
+            initCharts();
+            init3D();
+            
+            logMsg("FlowLab initialized.", 'success');
+            logMsg("Visualization: Dense Tracer Particles driven by Analytical Velocity Field.", 'info');
+            
+            triggerRecalculate();
+        };
+
+    </script>
+</body>
+</html>
